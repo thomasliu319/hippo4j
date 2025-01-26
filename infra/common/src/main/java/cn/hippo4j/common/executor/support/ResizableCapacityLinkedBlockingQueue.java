@@ -79,13 +79,17 @@ public class ResizableCapacityLinkedBlockingQueue<E> extends AbstractQueue<E>
 
     /**
      * Linked list node class
+     * 内部类，Node对象就是链表中的节点，数据就包装在Node对象中
+     * 然后添加到链表中
      */
     static class Node<E> {
 
         /**
          * The item, volatile to ensure barrier separating write and read
          */
+        //数据本省
         volatile E item;
+        //指向下一个节点
         Node<E> next;
 
         Node(E x) {
@@ -95,47 +99,56 @@ public class ResizableCapacityLinkedBlockingQueue<E> extends AbstractQueue<E>
 
     /**
      * The capacity bound, or Integer.MAX_VALUE if none
+     * 队列的最大容量，这个成员变量是可以动态更新的
      */
     private int capacity;
 
     /**
      * Current number of elements
+     * 当前队列存放的数据的个数
      */
     private final AtomicInteger count = new AtomicInteger(0);
 
     /**
      * Head of linked list
+     * 链表头节点
      */
     private transient Node<E> head;
 
     /**
      * Tail of linked list
+     * 链表尾节点
      */
     private transient Node<E> last;
 
     /**
      * Lock held by take, poll, etc
+     * 数据出队的同步锁
      */
     private final ReentrantLock takeLock = new ReentrantLock();
 
     /**
      * Wait queue for waiting takes
+     * 出队的条件对象
      */
     private final Condition notEmpty = takeLock.newCondition();
 
     /**
      * Lock held by put, offer, etc
+     * 数据入队的同步锁
      */
     private final ReentrantLock putLock = new ReentrantLock();
 
     /**
      * Wait queue for waiting puts
+     * 入队的条件对象
      */
     private final Condition notFull = putLock.newCondition();
 
     /**
      * Signal a waiting take. Called only from put/offer (which do not
      * otherwise ordinarily lock takeLock.)
+     *
      */
     private void signalNotEmpty() {
         final ReentrantLock takeLock = this.takeLock;
@@ -201,6 +214,7 @@ public class ResizableCapacityLinkedBlockingQueue<E> extends AbstractQueue<E>
     /**
      * Creates a <tt>LinkedBlockingQueue</tt> with a capacity of
      * {@link Integer#MAX_VALUE}.
+     * 无界队列构造方法
      */
     public ResizableCapacityLinkedBlockingQueue() {
         this(Integer.MAX_VALUE);
@@ -212,6 +226,7 @@ public class ResizableCapacityLinkedBlockingQueue<E> extends AbstractQueue<E>
      * @param capacity the capacity of this queue.
      * @throws IllegalArgumentException if <tt>capacity</tt> is not greater
      *                                  than zero.
+     *   有界队列构造方法
      */
     public ResizableCapacityLinkedBlockingQueue(int capacity) {
         if (capacity <= 0) {
@@ -344,6 +359,7 @@ public class ResizableCapacityLinkedBlockingQueue<E> extends AbstractQueue<E>
      * the specified waiting time elapses before space is available.
      * @throws InterruptedException if interrupted while waiting.
      * @throws NullPointerException if the specified element is <tt>null</tt>.
+     * 数据入队的方法
      */
     @Override
     public boolean offer(E o, long timeout, TimeUnit unit) throws InterruptedException {
@@ -393,24 +409,42 @@ public class ResizableCapacityLinkedBlockingQueue<E> extends AbstractQueue<E>
      * @return <tt>true</tt> if it was possible to add the element to
      * this queue, else <tt>false</tt>
      * @throws NullPointerException if the specified element is <tt>null</tt>
+     * 数据入队的方法
      */
     @Override
     public boolean offer(E o) {
         if (o == null) {
             throw new NullPointerException();
         }
+        //得到队列当前存放数据的数量
         final AtomicInteger count = this.count;
+        //如果存放的任务数量大于等于队列最大容量，直接返回false,这时没办法再将数据入队
         if (count.get() >= capacity) {
             return false;
         }
+        //走到这里意味着队列没有满
         int c = -1;
         final ReentrantLock putLock = this.putLock;
+        //开始执行数据入队操作，为了保证并发安全，要获得同步锁
         putLock.lock();
         try {
+            //在这里再次判断一下队列是否已满
+            //这就是一个简单的同步锁双重判断
             if (count.get() < capacity) {
+                //走到这里意味着队列没有满，直接把数据添加到队列中即可
                 insert(o);
+                //数据添加之后，得到添加数据之前队列的容量
+                //注意这里是getAndIncrement,先得到值然后再自增
                 c = count.getAndIncrement();
+                //这里判断一下当有数据入队之后，队列中是否还有容量
+                //如果还有容量，就唤醒正在阻塞中的线程
                 if (c + 1 < capacity) {
+                    //这里大家可能会有疑惑，为什么明明已经有线程添加数据成功了，怎么还会有添加数据的线程阻塞呢？
+                    //这是因为可能有些线程向队列添加数据的时候，队列已经满了，这些线程就会直接堵塞，具体逻辑可以去
+                    //put、限时的offer方法中查看
+                    //而当前线程添加数据的时候，有些数据已经从队列中取走了，所以要判断一下是否还有容量
+                    //有的话唤醒正在阻塞的线程
+                    //有的话唤醒正在阻塞的线程
                     notFull.signal();
                 }
             }
